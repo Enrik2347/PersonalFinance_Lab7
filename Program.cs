@@ -8,6 +8,13 @@ namespace PersonalFinance
     {
         const int Capacity = 100;
 
+        const double MonthlyIncome = 12000;
+        const int DaysInMonth = 30;
+
+        const double MaxExpense = 100000;
+        const double MaxStep = 1000;
+        const int MaxTableRows = 50;
+
         static readonly string[] Categories =
         {
             "Продукти", "Транспорт", "Житло", "Розваги",
@@ -22,8 +29,7 @@ namespace PersonalFinance
 
         static void Main()
         {
-            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("uk-UA");
-            Console.OutputEncoding = Encoding.UTF8;
+            ConfigureConsole();
 
             bool running = true;
 
@@ -36,28 +42,21 @@ namespace PersonalFinance
 
                 switch (choice)
                 {
-                    case "1":
-                        ShowAbout();
-                        Pause();
-                        break;
-                    case "2":
-                        ShowBalanceTable();
-                        Pause();
-                        break;
-                    case "3":
-                        ShowCategoryTable();
-                        Pause();
-                        break;
-                    case "0":
-                        running = false;
-                        Console.WriteLine("До побачення.");
-                        break;
-                    default:
-                        Console.WriteLine("Немає такого пункту. Спробуйте ще раз.");
-                        Pause();
-                        break;
+                    case "1": ShowAbout(); Pause(); break;
+                    case "2": ShowBalanceTable(); Pause(); break;
+                    case "3": ShowCategoryTable(); Pause(); break;
+                    case "0": running = false; break;
+                    default: RejectChoice(); break;
                 }
             }
+
+            Console.WriteLine("До побачення.");
+        }
+
+        static void ConfigureConsole()
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("uk-UA");
+            Console.OutputEncoding = Encoding.UTF8;
         }
 
         static void ShowMenu()
@@ -73,8 +72,20 @@ namespace PersonalFinance
         static void Pause()
         {
             Console.WriteLine("\nНатисніть будь-яку клавішу...");
-            Console.ReadKey(true);
-            Console.Clear();
+
+            if (Console.IsInputRedirected)
+                Console.ReadLine();
+            else
+                Console.ReadKey(true);
+
+            if (!Console.IsOutputRedirected)
+                Console.Clear();
+        }
+
+        static void RejectChoice()
+        {
+            Console.WriteLine("Немає такого пункту. Спробуйте ще раз.");
+            Pause();
         }
 
         static void ShowAbout()
@@ -98,21 +109,38 @@ namespace PersonalFinance
 
         static void ShowBalanceTable()
         {
-            const double income = 12000;
-            const int days = 30;
-            const double from = 100.50;
-            const double to = 550.50;
-            const double step = 50.50;
-
             Console.WriteLine("--- Баланс за місяць ---");
-            Console.WriteLine($"Дохід: {income:F2} грн, днів у місяці: {days}.");
+            Console.WriteLine($"Дохід: {MonthlyIncome:F2} грн, днів у місяці: {DaysInMonth}.");
+
+            double from = ReadDouble($"Початок проміжку, грн (0–{MaxExpense:F0}): ", 0, MaxExpense);
+            double to = ReadDouble($"Кінець проміжку, грн ({from:F2}–{MaxExpense:F0}): ", from, MaxExpense);
+            double step = ReadDouble("Крок табулювання, грн (0,01–1000): ", 0.01, MaxStep);
+
+            int rowCount = (int)Math.Floor((to - from) / step + 1e-9) + 1;
+            if (rowCount > MaxTableRows)
+            {
+                Console.WriteLine($"Помилка: вийде {rowCount} рядків, а максимум — {MaxTableRows}.");
+                Console.WriteLine("Зменште проміжок або збільште крок.");
+                return;
+            }
+
+            PrintBalanceTable(from, to, step);
+        }
+
+        static void PrintBalanceTable(double from, double to, double step)
+        {
             Console.WriteLine($"{"Витрата на день, грн",24}{"Баланс за місяць, грн",24}");
 
             for (double expense = from; expense <= to + 1e-9; expense += step)
             {
-                double balance = income - expense * days;
+                double balance = CalculateMonthlyBalance(MonthlyIncome, DaysInMonth, expense);
                 Console.WriteLine($"{expense,24:F2}{balance,24:F2}");
             }
+        }
+
+        static double CalculateMonthlyBalance(double income, int days, double dailyExpense)
+        {
+            return income - dailyExpense * days;
         }
 
         static void ShowCategoryTable()
@@ -120,11 +148,8 @@ namespace PersonalFinance
             Console.WriteLine("--- Витрати за категоріями та місяцями ---");
             Console.WriteLine($"Доступно категорій: {Categories.Length}, місяців: {Months.Length}.");
 
-            Console.Write($"Скільки рядків (категорій), 1–{Categories.Length}: ");
-            if (!TryReadCount(Categories.Length, out int rows)) return;
-
-            Console.Write($"Скільки стовпців (місяців), 1–{Months.Length}: ");
-            if (!TryReadCount(Months.Length, out int cols)) return;
+            int rows = ReadInt($"Скільки рядків (категорій), 1–{Categories.Length}: ", 1, Categories.Length);
+            int cols = ReadInt($"Скільки стовпців (місяців), 1–{Months.Length}: ", 1, Months.Length);
 
             double[] columnTotals = new double[cols];
             double grandTotal = 0;
@@ -143,7 +168,7 @@ namespace PersonalFinance
 
                 for (int col = 0; col < cols; col++)
                 {
-                    double amount = CellAmount(row, col);
+                    double amount = CalculateCellAmount(row, col);
                     rowTotal += amount;
                     columnTotals[col] += amount;
                     Console.Write($"{amount,10:F2}");
@@ -162,25 +187,66 @@ namespace PersonalFinance
             Console.WriteLine($"Загальна сума витрат: {grandTotal:F2} грн.");
         }
 
-        static double CellAmount(int row, int col)
+        static double CalculateCellAmount(int row, int col)
         {
             double season = Math.Sin((col + 1) * Math.PI / 6) * 120;
             double variation = (row * 37 + col * 19) % 60;
             return 300 + row * 150 + season + variation;
         }
 
-        static bool TryReadCount(int max, out int value)
+        static double ReadDouble(string prompt, double min, double max)
         {
-            string text = (Console.ReadLine() ?? string.Empty).Trim();
-
-            if (!int.TryParse(text, out value) || value < 1 || value > max)
+            while (true)
             {
-                Console.WriteLine($"Помилка: потрібне ціле число від 1 до {max}. Таблицю не побудовано.");
-                value = 0;
-                return false;
-            }
+                Console.Write(prompt);
+                string text = (Console.ReadLine() ?? string.Empty).Trim();
 
-            return true;
+                double value;
+                bool parsed = double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out value);
+
+                if (!parsed)
+                {
+                    string normalized = text.Replace(',', '.');
+                    parsed = double.TryParse(normalized, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+                }
+
+                if (!parsed)
+                {
+                    Console.WriteLine("Помилка: це не число. Спробуйте ще раз.");
+                    continue;
+                }
+
+                if (value < min || value > max)
+                {
+                    Console.WriteLine($"Помилка: число має бути від {min:F2} до {max:F2}.");
+                    continue;
+                }
+
+                return value;
+            }
+        }
+
+        static int ReadInt(string prompt, int min, int max)
+        {
+            while (true)
+            {
+                Console.Write(prompt);
+                string text = (Console.ReadLine() ?? string.Empty).Trim();
+
+                if (!int.TryParse(text, out int value))
+                {
+                    Console.WriteLine("Помилка: потрібне ціле число. Спробуйте ще раз.");
+                    continue;
+                }
+
+                if (value < min || value > max)
+                {
+                    Console.WriteLine($"Помилка: число має бути від {min} до {max}.");
+                    continue;
+                }
+
+                return value;
+            }
         }
     }
 }
